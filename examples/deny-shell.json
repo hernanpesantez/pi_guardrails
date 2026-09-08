@@ -1,0 +1,7 @@
+{
+  "id": "no-shell",
+  "rule": "structured-tools",
+  "tools": ["bash"],
+  "action": "block",
+  "check": {"kind": "deny"}
+}

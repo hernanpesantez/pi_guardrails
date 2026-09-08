@@ -1,0 +1,8 @@
+node_modules/
+*.tgz
+.harness/config.json.lock
+.harness/*.tmp
+coverage/
+
+
+/releasing*

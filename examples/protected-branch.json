@@ -1,0 +1,7 @@
+{
+  "id": "feature-branch",
+  "rule": "branch-policy",
+  "tools": ["write", "edit"],
+  "action": "block",
+  "check": {"kind": "git-branch", "options": {"protected": ["main", "master"]}}
+}

@@ -1,0 +1,7 @@
+{
+  "id": "require-ticket",
+  "rule": "ticket-required",
+  "tools": ["harness_echo"],
+  "action": "block",
+  "check": {"kind": "command", "command": ["node", ".harness/checker.mjs"], "timeoutMs": 5000}
+}

@@ -1,0 +1,6 @@
+{
+  "id": "echo",
+  "description": "Echo a JSON payload to demonstrate a project tool",
+  "command": ["node", ".harness/echo.mjs"],
+  "timeoutMs": 5000
+}
