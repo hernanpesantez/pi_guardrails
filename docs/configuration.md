@@ -1,6 +1,6 @@
 # Configuration and extension protocols
 
-The nearest `.harness/config.json` in the current directory or its ancestors is used. Configurations do not merge. Run `init` at the intended project root; nested projects inherit the nearest existing configuration unless you explicitly create their own. No Git repository is required except for Git checks.
+The nearest `.harness/config.json` in the current directory or its ancestors is used. Configurations do not merge. Run `init` at the intended project root; nested projects inherit the nearest existing configuration. Run `init --local` inside a nested project when it needs its own configuration. No Git repository is required except for Git checks.
 
 ```json
 {
@@ -74,3 +74,25 @@ Both program types default to 10 seconds, configurable from 1 to 300000 millisec
 Commit `.harness/config.json` and project scripts with the repository. CLI mutations use an exclusion lock and atomic rename. Concurrent harness mutations fail with a lock error rather than overwrite each other. After a crashed CLI, inspect and remove a stale `config.json.lock` manually. External editors must not write concurrently with CLI mutations.
 
 Audit entries use Pi's `appendEntry` with type `harness:decision`. They record timestamp, rule/enforcement IDs, action, result status, and tool name. They exclude arguments, checker reasons, and outputs. These session entries are diagnostic records, not tamper-proof evidence or task memory.
+
+## Interactive control and self-add
+
+In Pi TUI or RPC mode, `/harness` opens a control center backed by the same
+configuration loader and atomic management functions as the CLI. An enforcement
+is shown as effectively active only when both it and its referenced rule are
+enabled. Disabling a configured project tool removes it from Pi's active tool
+set; enabling it registers or reactivates it immediately.
+
+`/harness self-add <request>` activates a one-time proposal tool and sends the
+plain-language request to the agent. A proposal contains complete `rules`,
+`enforcements`, and `tools` arrays of entries to add. The harness validates the
+proposal against the current config and asks the user to confirm the exact JSON.
+The update then runs under the config exclusion lock and atomic rename. A stale
+request ID, changed project root, invalid merged config, rejected confirmation,
+or noninteractive session cannot apply a proposal.
+
+Self-add is an authoring convenience, not an authority boundary. Approved custom
+command checkers and project tools remain trusted executable code with the same
+environment and permissions described above. Self-add only updates config and may
+reference existing programs; it does not create checker or tool scripts. New
+executable code uses the normal reviewed development workflow.

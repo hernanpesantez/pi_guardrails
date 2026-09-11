@@ -4,13 +4,15 @@ import { randomUUID } from 'node:crypto';
 import { emptyConfig, findProject, loadProject, validateConfig, describe } from './engine.js';
 
 export const help = `Harness commands:
-  init
+  init [--local]
   status | doctor
+  dashboard  (Pi only)
   rule add <id> <description>
   enforcement add <path-to-definition.json>
   tool add <path-to-definition.json>
   enable|disable rule|enforcement|tool <id>
   check <tool-name> <JSON-input>
+  self-add <plain-language policy request>  (Pi only)
 
 Checks are dry runs of enforcement; custom checker programs still execute.
 Definitions are JSON. Changes take effect on the next tool call.
@@ -32,13 +34,35 @@ async function update(file, transform) {
     await unlink(temporary).catch(e => { if (e.code !== 'ENOENT') throw e; });
   }
 }
+export async function applyProposal(cwd, proposal) {
+  await validateProposal(cwd, proposal);
+  const project = await loadProject(cwd);
+  await update(project.file, config => {
+    for (const collection of ['rules', 'enforcements', 'tools']) config[collection].push(...proposal[collection]);
+  });
+  return loadProject(cwd);
+}
+export async function validateProposal(cwd, proposal) {
+  if (!proposal || typeof proposal !== 'object' || Array.isArray(proposal)) throw new Error('Proposal must be an object');
+  const allowed = ['rules', 'enforcements', 'tools'];
+  for (const key of Object.keys(proposal)) if (!allowed.includes(key)) throw new Error(`Proposal: unknown field ${key}`);
+  for (const collection of allowed) if (!Array.isArray(proposal[collection])) throw new Error(`Proposal.${collection} must be an array`);
+  if (!allowed.some(collection => proposal[collection].length)) throw new Error('Proposal must add at least one entry');
+  const project = await loadProject(cwd);
+  if (!project) throw new Error('Run harness init first');
+  const combined = structuredClone(project.config);
+  for (const collection of allowed) combined[collection].push(...proposal[collection]);
+  validateConfig(combined);
+  return combined;
+}
 export async function manage(cwd, args) {
   const text = args.trim();
   if (!text || text === 'help') return help;
-  if (text === 'init') {
+  if (text === 'init' || text === 'init --local') {
     const existing = await findProject(cwd);
-    if (existing) return `Already initialized: ${existing.file}`;
+    if (existing && text === 'init') return `Already initialized: ${existing.file}`;
     const file = resolve(cwd, '.harness/config.json');
+    if (existing?.file === file) return `Already initialized: ${existing.file}`;
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, JSON.stringify(emptyConfig(), null, 2) + '\n', { flag: 'wx' });
     return `Created ${file}. No rules enabled; add rules and attach enforcement.`;

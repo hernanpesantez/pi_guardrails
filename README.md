@@ -27,6 +27,11 @@ Then start Pi (or `/reload` in an existing session):
 /harness status
 ```
 
+Running `/harness` with no arguments opens an interactive control center in Pi.
+It shows effective active counts and lets you inspect or enable/disable rules,
+enforcements, and project tools. Disabling a project tool also removes it from
+Pi's active tool set for the current session.
+
 The example blocks Pi `write` and `edit` calls targeting repositories on `main` or `master`. It checks the target's repository, including symlink targets and newly created paths. A detached HEAD or unknown repository blocks too. It **does not inspect shell commands or prevent a shell from writing or committing**. Add a `deny` enforcement for `bash` if your workflow uses only structured tools, or complement it with external controls.
 
 Nothing is installed into your other projects automatically. `-l` writes Pi's project settings. Omit `-l` for a user installation; the extension then looks for project configuration wherever Pi runs.
@@ -36,6 +41,8 @@ Nothing is installed into your other projects automatically. `-l` writes Pi's pr
 | Command | Purpose |
 | --- | --- |
 | `/harness init` | Create `.harness/config.json` without overwriting existing policy |
+| `/harness init --local` | Create a nested project configuration even when a parent policy exists |
+| `/harness` or `/harness dashboard` | Open the interactive policy control center |
 | `/harness rule add <id> <description>` | Add an advisory rule |
 | `/harness enforcement add <file.json>` | Validate and attach a checker definition |
 | `/harness tool add <file.json>` | Register a project tool |
@@ -45,6 +52,8 @@ Nothing is installed into your other projects automatically. `-l` writes Pi's pr
 | `/harness doctor` | Validate configuration and show status; does not execute programs |
 | `/harness check <tool-name> <JSON-input>` | Evaluate policy without executing the target tool |
 | `/harness reload` | Discover tools after external edits and accept the current project root |
+| `/harness self-add <request>` | Ask the agent to build an additive policy proposal and show it for confirmation |
+| `/harness self-add cancel` | Cancel the pending assisted-policy request |
 | `/harness help` | Show command help |
 
 Paths after `add` may contain spaces; pass the path without literal quote characters in Pi. The standalone CLI uses normal shell quoting:
@@ -56,6 +65,28 @@ node /absolute/path/to/pi-agent-harness/bin/pi-harness.js check write '{"path":"
 ```
 
 `pi-harness` is also available when installed through npm's CLI mechanisms. Pi package installation alone does not promise a globally accessible CLI binary.
+
+### Assisted policy authoring
+
+In an interactive Pi session, a request such as:
+
+```text
+/harness self-add Prevent writes and edits on dev as well as main
+```
+
+starts an agent turn with a one-time request ID. The agent inspects the current
+project policy and submits additive `rules`, `enforcements`, and `tools` through
+the normally absent `pi_harness_policy_propose` tool. The harness validates the
+complete merged configuration first, then shows the exact JSON in a TUI
+confirmation dialog. Nothing is written unless you approve it. The proposal is
+applied under the same lock and atomic-rename mechanism as other harness changes.
+
+Self-add never edits or removes existing entries. Proposals containing command
+checkers or project tools are marked as trusted executable changes in the
+confirmation dialog. They may reference programs that already exist, but self-add
+does not create executable files. A new checker or tool implementation remains a
+normal reviewed code change. Review referenced scripts and argv before accepting
+them. The proposal tool exists only while a matching self-add request is pending.
 
 ## Add custom enforcement and a tool
 
@@ -84,12 +115,18 @@ See [configuration and protocols](docs/configuration.md) and [enforcement covera
 ## Architecture
 
 ```text
+Pi turn      -> load + validate nearest project config
+             -> inject rule status into the system prompt
+
 Pi tool_call -> load + validate nearest project config
              -> select enabled rules/enforcements by tool name
              -> built-in checker or external checker program
              -> pass / warn / block + session audit entry
 
 Pi custom tool -> reload current definition -> execute program via argv + JSON stdin
+
+/harness      -> interactive status and enable/disable control
+/harness self-add -> agent proposal -> validation -> user confirmation -> atomic add
 ```
 
 The engine in `src/engine.js` has no Pi dependency. The adapter in `extensions/harness.js` connects it to Pi. The CLI and `/harness` share the management implementation. This is a Pi package, not a Codex plugin.

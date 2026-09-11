@@ -161,6 +161,17 @@ export async function evaluate(project, event, signal) {
   }
   return { blocked: results.some(r => r.action === 'block' && r.status !== 'pass'), results };
 }
+const enabled = item => Boolean(item) && item.enabled !== false;
+export function projectCounts(project) {
+  const count = items => ({ active: items.filter(enabled).length, total: items.length });
+  const enabledRules = new Set((project?.config.rules ?? []).filter(enabled).map(rule => rule.id));
+  const enforcements = project?.config.enforcements ?? [];
+  return {
+    rules: count(project?.config.rules ?? []),
+    enforcements: { active: enforcements.filter(item => enabled(item) && enabledRules.has(item.rule)).length, total: enforcements.length },
+    tools: count(project?.config.tools ?? []),
+  };
+}
 export function describe(project) {
   if (!project) return 'Harness: no project configuration. Run /harness init.';
   const { config } = project;
@@ -171,5 +182,33 @@ export function describe(project) {
     lines.push(`${rule.id} [${mode}]: ${rule.description}`);
   }
   for (const tool of config.tools) lines.push(`tool harness_${tool.id}: ${tool.enabled === false ? 'disabled' : tool.description}`);
+  return lines.join('\n');
+}
+export function describeDetailed(project) {
+  if (!project) return 'Harness: no project configuration. Run /harness init.';
+  const counts = projectCounts(project);
+  const lines = [
+    `Harness: ${project.file}`,
+    `Rules ${counts.rules.active}/${counts.rules.total} active · Enforcements ${counts.enforcements.active}/${counts.enforcements.total} active · Tools ${counts.tools.active}/${counts.tools.total} active`,
+    '',
+    'Rules',
+  ];
+  if (!project.config.rules.length) lines.push('  (none)');
+  for (const rule of project.config.rules) {
+    lines.push(`  ${enabled(rule) ? '●' : '○'} ${rule.id}: ${rule.description}`);
+  }
+  lines.push('', 'Enforcements');
+  if (!project.config.enforcements.length) lines.push('  (none)');
+  for (const enforcement of project.config.enforcements) {
+    const ruleEnabled = enabled(project.config.rules.find(rule => rule.id === enforcement.rule));
+    const effective = enabled(enforcement) && ruleEnabled;
+    const note = !ruleEnabled ? ' · rule disabled' : '';
+    lines.push(`  ${effective ? '●' : '○'} ${enforcement.id} [${enforcement.action} · ${enforcement.check.kind} · ${enforcement.tools.join(', ')}${note}] → ${enforcement.rule}`);
+  }
+  lines.push('', 'Tools');
+  if (!project.config.tools.length) lines.push('  (none)');
+  for (const tool of project.config.tools) {
+    lines.push(`  ${enabled(tool) ? '●' : '○'} harness_${tool.id}: ${tool.description}`);
+  }
   return lines.join('\n');
 }
