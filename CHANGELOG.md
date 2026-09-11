@@ -11,3 +11,6 @@
 - Interactive Pi control center with effective-state counts and enable/disable controls.
 - Confirmation-gated `/harness self-add` policy proposals with atomic validation and audit entries.
 - Active-tool synchronization and explicit nested-project initialization with `init --local`.
+- Optional native `pre-commit`/`pre-push` adapter managed from Pi or CLI.
+- Destination-aware `git-push` checker for protected branches, deletes, and branch-name matching.
+- Composite GitHub Action and standalone event-enforcement entry point for required checks.

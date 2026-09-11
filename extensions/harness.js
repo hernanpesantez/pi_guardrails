@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { loadProject, describe, describeDetailed, projectCounts, evaluate, runCommand } from '../src/engine.js';
 import { manage, applyProposal, validateProposal } from '../src/manage.js';
+import { describeGitHooks, gitHookStatus } from '../src/git.js';
 
 const reply = text => ({ content: [{ type: 'text', text }], details: {} });
 export default function harness(pi) {
@@ -129,17 +130,43 @@ export default function harness(pi) {
       const project = await loadProject(ctx.cwd);
       if (!project) return describeDetailed(project);
       const counts = projectCounts(project);
+      const activeRules = new Set(project.config.rules.filter(rule => rule.enabled !== false).map(rule => rule.id));
+      const githubChecks = project.config.enforcements.filter(item => item.enabled !== false && activeRules.has(item.rule) && item.tools.some(tool => tool.startsWith('github:')));
+      const hooks = await gitHookStatus(ctx.cwd);
+      const hookState = hooks.installed ? 'installed' : hooks.configuredPath || hooks.legacyHooks.length ? 'conflict' : hooks.repository ? 'not installed' : 'unavailable';
       const top = [
         `Overview`,
         `Rules · ${counts.rules.active}/${counts.rules.total} active`,
         `Enforcements · ${counts.enforcements.active}/${counts.enforcements.total} active`,
         `Tools · ${counts.tools.active}/${counts.tools.total} active`,
+        `GitHub checks · ${githubChecks.length} configured`,
+        `Git hooks · ${hookState}`,
         'Close',
       ];
       const choice = await ctx.ui.select(`Harness control center\n${project.file}`, top);
       if (!choice || choice === 'Close') return describeDetailed(project);
       if (choice === 'Overview') {
-        await ctx.ui.select(describeDetailed(project), ['Back']);
+        await ctx.ui.select(`${describeDetailed(project)}\n\n${describeGitHooks(hooks)}`, ['Back']);
+        continue;
+      }
+      if (choice.startsWith('GitHub checks')) {
+        const lines = githubChecks.length
+          ? githubChecks.map(item => `${item.id}: ${item.action} on ${item.tools.join(', ')}`)
+          : ['No active GitHub event enforcements.', 'Add an enforcement for an exact github:* event, then run the reusable action as a required check.'];
+        await ctx.ui.select(`GitHub policy\n${lines.join('\n')}`, ['Back']);
+        continue;
+      }
+      if (choice.startsWith('Git hooks')) {
+        const actions = hooks.installed ? ['Uninstall hooks', 'Back']
+          : hooks.repository && !hooks.configuredPath && !hooks.legacyHooks.length ? ['Install hooks', 'Back'] : ['Back'];
+        const selected = await ctx.ui.select(describeGitHooks(hooks), actions);
+        if (!selected || selected === 'Back') continue;
+        const operation = selected.startsWith('Install') ? 'install' : 'uninstall';
+        const ok = await ctx.ui.confirm(`${operation === 'install' ? 'Install' : 'Uninstall'} Git hooks?`, operation === 'install'
+          ? 'Configure this repository to run harness pre-commit and pre-push policy events.'
+          : 'Remove this repository’s harness core.hooksPath setting.');
+        if (!ok) continue;
+        ctx.ui.notify(await manage(ctx.cwd, `git ${operation}`), 'info');
         continue;
       }
       const kind = choice.startsWith('Rules') ? 'rule' : choice.startsWith('Enforcements') ? 'enforcement' : 'tool';
@@ -215,7 +242,9 @@ export default function harness(pi) {
             'Harness self-add request:', request, '',
             `Request ID: ${pendingSelfAdd.id}`,
             'Inspect the current .harness/config.json and translate this request into additive rules, enforcements, and tools.',
+            'Native Git policies use tool names git:pre-commit and git:pre-push. The git-push checker can protect destination branches, deny deletion, and require matching local/remote branch names.',
             'Use existing built-in checks when possible. Do not edit project files during self-add. Command checkers and tools may reference only programs that already exist; if new executable code is required, explain that it needs a separate implementation change.',
+            'GitHub policies use exact github:* event names and run through the reusable GitHub Action; they become remote enforcement only when that workflow is required by branch protection.',
             `Do not edit .harness/config.json directly. Call ${proposalTool} with the request ID and complete rules, enforcements, and tools arrays. The exact proposal requires user confirmation in Pi before it is applied.`,
           ].join('\n'), { deliverAs: 'steer' });
           ctx.ui.notify('Self-add request sent to the agent; waiting for a policy proposal.', 'info');

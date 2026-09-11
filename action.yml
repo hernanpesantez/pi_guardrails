@@ -1,0 +1,24 @@
+name: Pi Agent Harness Policy
+description: Evaluate a versioned project harness event in GitHub Actions
+inputs:
+  event:
+    description: Exact configured event name
+    required: false
+    default: github:pull-request
+  input:
+    description: Additional JSON object passed to policy checkers
+    required: false
+    default: '{}'
+runs:
+  using: composite
+  steps:
+    - name: Select Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.19.0'
+    - name: Evaluate harness policy
+      shell: bash
+      env:
+        PI_HARNESS_EVENT: ${{ inputs.event }}
+        PI_HARNESS_INPUT: ${{ inputs.input }}
+      run: node "$GITHUB_ACTION_PATH/bin/pi-harness-enforce.js"

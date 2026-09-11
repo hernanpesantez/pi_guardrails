@@ -42,7 +42,7 @@ export function validateConfig(config) {
     assert(['warn', 'block'].includes(e.action), `${e.id}: action must be warn or block`);
     keys(e.check, ['kind', 'options', 'command', 'timeoutMs'], `${e.id}.check`);
     const c = e.check;
-    assert(['deny', 'git-branch', 'command'].includes(c.kind), `${e.id}: unknown checker ${c.kind}`);
+    assert(['deny', 'git-branch', 'git-push', 'command'].includes(c.kind), `${e.id}: unknown checker ${c.kind}`);
     if (c.kind === 'command') {
       assert(c.options === undefined, `${e.id}: command checker does not accept options`);
       command(c.command, e.id); timeout(c.timeoutMs, e.id);
@@ -52,6 +52,13 @@ export function validateConfig(config) {
       if (c.kind === 'git-branch') {
         keys(c.options, ['protected'], `${e.id}.options`);
         assert(strings(c.options.protected) && c.options.protected.length > 0, `${e.id}: protected branches required`);
+      }
+      if (c.kind === 'git-push') {
+        keys(c.options, ['protected', 'denyDeletes', 'sameBranch'], `${e.id}.options`);
+        assert(c.options.protected === undefined || strings(c.options.protected), `${e.id}: protected must be a list of branch names`);
+        assert(c.options.denyDeletes === undefined || typeof c.options.denyDeletes === 'boolean', `${e.id}: denyDeletes must be boolean`);
+        assert(c.options.sameBranch === undefined || typeof c.options.sameBranch === 'boolean', `${e.id}: sameBranch must be boolean`);
+        assert((c.options.protected?.length ?? 0) > 0 || c.options.denyDeletes === true || c.options.sameBranch === true, `${e.id}: git-push requires protected branches, denyDeletes, or sameBranch`);
       }
     }
   }
@@ -139,6 +146,26 @@ export async function check(checker, event, project, signal) {
       return checker.options.protected.includes(branch)
         ? { status: 'fail', reason: `Protected branch: ${branch}` }
         : { status: 'pass', reason: `Feature branch: ${branch}` };
+    }
+    if (checker.kind === 'git-push') {
+      assert(event.toolName === 'git:pre-push', 'git-push checker requires git:pre-push');
+      assert(Array.isArray(event.input?.updates), 'Missing pre-push updates');
+      const zero = sha => typeof sha === 'string' && /^0{40}(?:0{24})?$/.test(sha);
+      for (const update of event.input.updates) {
+        assert(object(update), 'Invalid pre-push update');
+        for (const field of ['localRef', 'localSha', 'remoteRef', 'remoteSha']) assert(nonempty(update[field]), `Missing pre-push ${field}`);
+        const branchName = update.remoteRef.startsWith('refs/heads/') ? update.remoteRef.slice(11) : null;
+        if (branchName && (checker.options.protected ?? []).includes(branchName)) return { status: 'fail', reason: `Protected push destination: ${branchName}` };
+        if (zero(update.localSha)) {
+          if (checker.options.denyDeletes) return { status: 'fail', reason: `Branch deletion is prohibited: ${branchName ?? update.remoteRef}` };
+          continue;
+        }
+        if (checker.options.sameBranch && branchName) {
+          const localName = update.localRef.startsWith('refs/heads/') ? update.localRef.slice(11) : null;
+          if (!localName || localName !== branchName) return { status: 'fail', reason: `Push branch names must match: ${update.localRef} → ${update.remoteRef}` };
+        }
+      }
+      return { status: 'pass', reason: `${event.input.updates.length} push update(s) allowed` };
     }
     const result = JSON.parse(await runCommand(checker.command, {
       cwd: project.root, input: { version: 1, event, projectRoot: project.root }, timeoutMs: checker.timeoutMs, signal,

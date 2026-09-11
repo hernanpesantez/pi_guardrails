@@ -35,6 +35,7 @@ test('strict configuration rejects typos, dangling references, duplicate ids and
     c => { c.enforcements[0].rule = 'missing'; }, c => { c.enforcements[0].action = 'allow'; },
     c => { c.enforcements[0].check = { kind: 'command', command: 'echo yes' }; },
     c => { c.enforcements[0].check = { kind: 'command', command: ['node'], timeoutMs: 0 }; },
+    c => { c.enforcements[0].check = { kind: 'git-push', options: { protected: [] } }; },
   ]) { const c = policy(); mutate(c); assert.throws(() => validateConfig(c)); }
 });
 test('rule management adds, toggles, and rejects duplicates without corrupting config', async t => {

@@ -27,7 +27,7 @@ Fields: `id`, `description`, optional `enabled`. Descriptions enter the agent's 
 
 Fields: `id`, `rule`, `tools`, `action`, `check`, optional `enabled`.
 
-`tools` is a nonempty list of exact Pi tool names, or `*` to match every agent tool call. No other glob syntax is supported. Actions are `warn` or `block`. All matching checks run sequentially; a failure in any blocking check blocks the call. Disabled rules disable all their checks.
+`tools` is a nonempty list of exact Pi tool or adapter-event names, or `*` to match every evaluated event. No other glob syntax is supported. Actions are `warn` or `block`. All matching checks run sequentially; a failure in any blocking check blocks the call. Disabled rules disable all their checks.
 
 Built-in check kinds:
 
@@ -35,9 +35,17 @@ Built-in check kinds:
 | --- | --- | --- |
 | `deny` | No options | Always fails when selected |
 | `git-branch` | `options.protected`: nonempty branch-name array | Fails on protected branches; unknown Git state returns unknown |
+| `git-push` | Optional `protected`, `denyDeletes`, `sameBranch`; at least one must enforce something | Checks resolved updates supplied by the native `pre-push` hook |
 | `command` | `command`: argv array; optional `timeoutMs` | Executes a checker program |
 
 `git-branch` resolves the target path for built-in `write` and `edit`. For all other tools it checks the session cwd's Git branch. It does not parse a shell command, a `git -C` argument, or custom tool payloads. Bind it only where that scope is appropriate.
+
+`git-push` requires the `git:pre-push` event. `protected` contains exact remote
+branch names. `denyDeletes` rejects zero-SHA updates. `sameBranch` requires a
+local branch to push to the same remote branch name. It ignores non-branch refs
+unless another option or custom checker handles them. The native hook parses
+Git's four-field stdin protocol before evaluation; malformed input fails closed
+for blocking enforcement.
 
 A command checker runs from the configuration's project root with this stdin:
 

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { emptyConfig, findProject, loadProject, validateConfig, describe } from './engine.js';
+import { describeGitHooks, gitHookStatus, installGitHooks, uninstallGitHooks } from './git.js';
 
 export const help = `Harness commands:
   init [--local]
@@ -13,6 +14,7 @@ export const help = `Harness commands:
   enable|disable rule|enforcement|tool <id>
   check <tool-name> <JSON-input>
   self-add <plain-language policy request>  (Pi only)
+  git status|install|uninstall
 
 Checks are dry runs of enforcement; custom checker programs still execute.
 Definitions are JSON. Changes take effect on the next tool call.
@@ -68,8 +70,12 @@ export async function manage(cwd, args) {
     return `Created ${file}. No rules enabled; add rules and attach enforcement.`;
   }
   const project = await loadProject(cwd);
-  if (['status', 'doctor', 'reload'].includes(text)) return describe(project);
+  if (['status', 'reload'].includes(text)) return describe(project);
+  if (text === 'doctor') return `${describe(project)}\n${describeGitHooks(await gitHookStatus(cwd))}`;
   if (!project) throw new Error('Run harness init first');
+  if (text === 'git status') return describeGitHooks(await gitHookStatus(cwd));
+  if (text === 'git install') return describeGitHooks(await installGitHooks(cwd));
+  if (text === 'git uninstall') return describeGitHooks(await uninstallGitHooks(cwd));
   const rule = /^rule add ([a-z][a-z0-9_-]*) (.+)$/s.exec(text);
   const add = /^(enforcement|tool) add (.+)$/s.exec(text);
   const toggle = /^(enable|disable) (rule|enforcement|tool) ([a-z][a-z0-9_-]*)$/.exec(text);

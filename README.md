@@ -2,11 +2,12 @@
 
 Project rules, executable enforcement, and custom tools for [Pi](https://github.com/earendil-works/pi). Bring the same engine to any repository and keep each project's policy in version control.
 
-**Version 0.1 is an early implementation.** It enforces policy at Pi's agent `tool_call` boundary. It is not an operating-system sandbox, a Git server policy, or a guarantee that an agent follows every instruction.
+**Version 0.1 is an early implementation.** It enforces policy at Pi's agent `tool_call` boundary and, when explicitly installed, at local Git `pre-commit` and `pre-push` hooks. It is not an operating-system sandbox, a Git server policy, or a guarantee that an agent follows every instruction.
 
 - **Rules** describe requirements and are included in the agent's context each turn.
 - **Enforcements** attach executable checks to tool names, with `warn` or `block` actions.
 - **Tools** run configured programs with structured JSON input, without shell interpolation.
+- **Git hooks** reuse the enforcement engine for commits and resolved push ref updates.
 
 No runtime npm dependencies. Node.js >=22.19 and Pi with dynamic `registerTool` support are required. Developed against Pi 0.85.1 (`@earendil-works/pi-coding-agent`); older Pi versions are not yet supported.
 
@@ -54,6 +55,9 @@ Nothing is installed into your other projects automatically. `-l` writes Pi's pr
 | `/harness reload` | Discover tools after external edits and accept the current project root |
 | `/harness self-add <request>` | Ask the agent to build an additive policy proposal and show it for confirmation |
 | `/harness self-add cancel` | Cancel the pending assisted-policy request |
+| `/harness git status` | Show native Git hook status |
+| `/harness git install` | Install the harness `pre-commit` and `pre-push` dispatcher |
+| `/harness git uninstall` | Remove the harness hook path when owned by this package |
 | `/harness help` | Show command help |
 
 Paths after `add` may contain spaces; pass the path without literal quote characters in Pi. The standalone CLI uses normal shell quoting:
@@ -87,6 +91,58 @@ confirmation dialog. They may reference programs that already exist, but self-ad
 does not create executable files. A new checker or tool implementation remains a
 normal reviewed code change. Review referenced scripts and argv before accepting
 them. The proposal tool exists only while a matching self-add request is pending.
+
+### Native Git hooks
+
+The control center shows whether this package owns the repository's Git hook
+path. Install the hooks from Pi with `/harness git install`, or from a terminal:
+
+```bash
+pi-harness git install
+```
+
+Hook policies use the exact event names `git:pre-commit` and `git:pre-push` in
+an enforcement's `tools` array. `pre-commit` can reuse `git-branch`. The
+`git-push` checker evaluates destination refs supplied by Git, so refspecs,
+multi-ref pushes, and deletes are checked after Git resolves the command:
+
+```json
+{
+  "id": "protected-pushes",
+  "rule": "push-policy",
+  "tools": ["git:pre-push"],
+  "action": "block",
+  "check": {
+    "kind": "git-push",
+    "options": {
+      "protected": ["main", "master"],
+      "denyDeletes": true,
+      "sameBranch": true
+    }
+  }
+}
+```
+
+Installation sets repository-local `core.hooksPath` to this package's `hooks/`
+directory. It refuses to replace another hook path or existing legacy
+`pre-commit`/`pre-push` files. Linked worktrees share the Git setting. Reinstall
+after moving or replacing the package checkout. Local hooks remain bypassable
+with `--no-verify`; require a GitHub status check or other server-side policy for
+remote enforcement. See [native Git hooks](docs/git-hooks.md).
+
+### GitHub required check
+
+The repository also ships a composite `action.yml`. A consumer workflow checks
+out its project, invokes this action with an exact event such as
+`github:pull-request`, and then makes that workflow a required status check in
+GitHub branch protection. Command checkers receive non-secret repository, ref,
+SHA, base/head branch, actor, and event-name metadata plus optional JSON input.
+The consumer should require owner review for `.harness/`, checker scripts, and
+the workflow so a pull request cannot silently weaken its own policy.
+
+This is a workflow action, not a webhook or GitHub App. Until this project is
+published on a stable tag, test it by referencing a reviewed local/Git checkout.
+See [GitHub enforcement](docs/github.md).
 
 ## Add custom enforcement and a tool
 
@@ -127,6 +183,9 @@ Pi custom tool -> reload current definition -> execute program via argv + JSON s
 
 /harness      -> interactive status and enable/disable control
 /harness self-add -> agent proposal -> validation -> user confirmation -> atomic add
+
+git commit/push -> installed native hook -> same policy engine -> allow or block
+GitHub workflow -> action.yml -> github:* event -> required status check
 ```
 
 The engine in `src/engine.js` has no Pi dependency. The adapter in `extensions/harness.js` connects it to Pi. The CLI and `/harness` share the management implementation. This is a Pi package, not a Codex plugin.

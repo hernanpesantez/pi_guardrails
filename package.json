@@ -15,7 +15,8 @@
     "node": ">=22.19.0"
   },
   "bin": {
-    "pi-harness": "./bin/pi-harness.js"
+    "pi-harness": "./bin/pi-harness.js",
+    "pi-harness-enforce": "./bin/pi-harness-enforce.js"
   },
   "exports": {
     ".": "./src/engine.js"
@@ -24,12 +25,14 @@
     "src",
     "extensions",
     "bin",
+    "hooks",
     "examples",
     "docs",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "CONTRIBUTING.md"
+    "CONTRIBUTING.md",
+    "action.yml"
   ],
   "pi": {
     "extensions": [
@@ -38,7 +41,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check extensions/harness.js && node --check src/engine.js && node --check src/manage.js && node --check bin/pi-harness.js",
+    "check": "node --check extensions/harness.js && node --check src/engine.js && node --check src/manage.js && node --check src/git.js && node --check bin/pi-harness.js && node --check bin/pi-harness-git.js && node --check bin/pi-harness-enforce.js",
     "prepack": "npm run check && npm test"
   }
 }
