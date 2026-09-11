@@ -92,6 +92,12 @@ does not create executable files. A new checker or tool implementation remains a
 normal reviewed code change. Review referenced scripts and argv before accepting
 them. The proposal tool exists only while a matching self-add request is pending.
 
+To keep an agent from directly bypassing native hooks, add
+`examples/no-git-hook-bypass.json` under an existing rule and bind it to the
+host shell tool (normally `bash`). The built-in `git-hook-bypass` checker blocks
+`git commit --no-verify`, `git commit -n`, and `git push --no-verify` before the
+shell command runs.
+
 ### Native Git hooks
 
 The control center shows whether this package owns the repository's Git hook

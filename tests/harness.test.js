@@ -90,6 +90,17 @@ test('blocking, warning, tool selection, disabled enforcement and advisory behav
   project.config.rules[0].enabled = false;
   assert.deepEqual((await evaluate(project, event('/tmp'))).results, []);
 });
+test('git hook bypass checker blocks no-verify without confusing push dry-run', async () => {
+  const project = { root: '/tmp', config: policy({ kind: 'git-hook-bypass' }, 'block', ['bash']) };
+  const run = command => evaluate(project, { toolName: 'bash', input: { command }, cwd: '/tmp' });
+  assert.equal((await run('git push -u origin feature/e2-skip-ui --no-verify 2>&1 | tail -5')).blocked, true);
+  assert.equal((await run('git commit --no-"verify" -m test')).blocked, true);
+  assert.equal((await run('git commit -n -m test')).blocked, true);
+  assert.equal((await run('/usr/bin/git push --no-verify origin feature')).blocked, true);
+  assert.equal((await run('git push origin feature/e2-skip-ui')).blocked, false);
+  assert.equal((await run('git push -n origin feature/e2-skip-ui')).blocked, false);
+  assert.equal((await run('printf -- --no-verify')).blocked, false);
+});
 test('custom command protocol passes structured input without shell evaluation', async t => {
   const root = await fixture(t);
   const code = `let s='';for await(const c of process.stdin)s+=c;const x=JSON.parse(s);console.log(JSON.stringify({status:x.event.input.path==='$(touch nope)'?'pass':'fail',reason:'checked'}))`;

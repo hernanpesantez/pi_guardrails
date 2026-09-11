@@ -14,3 +14,4 @@
 - Optional native `pre-commit`/`pre-push` adapter managed from Pi or CLI.
 - Destination-aware `git-push` checker for protected branches, deletes, and branch-name matching.
 - Composite GitHub Action and standalone event-enforcement entry point for required checks.
+- Configurable `git-hook-bypass` enforcement for direct Git `--no-verify` attempts in Pi shell calls.

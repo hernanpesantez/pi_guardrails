@@ -36,6 +36,7 @@ Built-in check kinds:
 | `deny` | No options | Always fails when selected |
 | `git-branch` | `options.protected`: nonempty branch-name array | Fails on protected branches; unknown Git state returns unknown |
 | `git-push` | Optional `protected`, `denyDeletes`, `sameBranch`; at least one must enforce something | Checks resolved updates supplied by the native `pre-push` hook |
+| `git-hook-bypass` | No options | Rejects hook-bypass flags on direct Git commit/push shell calls |
 | `command` | `command`: argv array; optional `timeoutMs` | Executes a checker program |
 
 `git-branch` resolves the target path for built-in `write` and `edit`. For all other tools it checks the session cwd's Git branch. It does not parse a shell command, a `git -C` argument, or custom tool payloads. Bind it only where that scope is appropriate.
@@ -46,6 +47,12 @@ local branch to push to the same remote branch name. It ignores non-branch refs
 unless another option or custom checker handles them. The native hook parses
 Git's four-field stdin protocol before evaluation; malformed input fails closed
 for blocking enforcement.
+
+`git-hook-bypass` inspects a Pi shell tool's `input.command`. Bind it to the
+host's shell tool name, normally `bash`. It rejects `git commit --no-verify`,
+`git commit -n`, and `git push --no-verify` before execution. Like all command
+inspection, it is not a complete shell parser and does not inspect Git commands
+hidden inside another permitted program.
 
 A command checker runs from the configuration's project root with this stdin:
 

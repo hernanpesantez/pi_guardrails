@@ -18,7 +18,7 @@ The harness evaluates agent tool calls delivered through Pi's `tool_call` extens
 - User shell escapes, external terminals, programs outside Pi, or extension code that directly runs processes.
 - Descendant operations inside a permitted shell/custom tool. A permitted tool can change branches, write files, or execute Git after its check passes.
 - Arbitrary shell parsing, command aliases, credentials, filesystem isolation, or network restrictions.
-- Git operations when native hooks are not installed, hooks are bypassed with `--no-verify`, or hooks are replaced outside the harness.
+- Git operations when native hooks are not installed or are replaced outside the harness. The optional `git-hook-bypass` Pi checker rejects direct bypass flags, but cannot inspect Git commands hidden inside another permitted program.
 - GitHub branch protection, required checks, or other server-side rules.
 - Tampering with the extension or configuration by a user/agent with filesystem access.
 - Races between checking state and performing an action. The Git check does not lock a worktree.

@@ -1,0 +1,7 @@
+{
+  "id": "no-git-hook-bypass",
+  "rule": "working-loop",
+  "tools": ["bash"],
+  "action": "block",
+  "check": {"kind": "git-hook-bypass"}
+}

@@ -42,13 +42,14 @@ export function validateConfig(config) {
     assert(['warn', 'block'].includes(e.action), `${e.id}: action must be warn or block`);
     keys(e.check, ['kind', 'options', 'command', 'timeoutMs'], `${e.id}.check`);
     const c = e.check;
-    assert(['deny', 'git-branch', 'git-push', 'command'].includes(c.kind), `${e.id}: unknown checker ${c.kind}`);
+    assert(['deny', 'git-branch', 'git-push', 'git-hook-bypass', 'command'].includes(c.kind), `${e.id}: unknown checker ${c.kind}`);
     if (c.kind === 'command') {
       assert(c.options === undefined, `${e.id}: command checker does not accept options`);
       command(c.command, e.id); timeout(c.timeoutMs, e.id);
     } else {
       assert(c.command === undefined && c.timeoutMs === undefined, `${e.id}: command fields require command checker`);
       if (c.kind === 'deny') keys(c.options ?? {}, [], e.id);
+      if (c.kind === 'git-hook-bypass') keys(c.options ?? {}, [], e.id);
       if (c.kind === 'git-branch') {
         keys(c.options, ['protected'], `${e.id}.options`);
         assert(strings(c.options.protected) && c.options.protected.length > 0, `${e.id}: protected branches required`);
@@ -166,6 +167,23 @@ export async function check(checker, event, project, signal) {
         }
       }
       return { status: 'pass', reason: `${event.input.updates.length} push update(s) allowed` };
+    }
+    if (checker.kind === 'git-hook-bypass') {
+      assert(typeof event.input?.command === 'string', 'Missing shell command');
+      // Inspect the direct shell command without claiming to be a complete
+      // shell parser. Removing simple quotes also catches --no-"verify".
+      const segments = event.input.command.split(/&&|\|\||;|\||\n|\$\(/g);
+      for (const segment of segments) {
+        const tokens = segment.replace(/["']/g, '').trim().split(/\s+/).filter(Boolean);
+        const git = tokens.findIndex(token => token === 'git' || token.endsWith('/git'));
+        if (git < 0) continue;
+        const operation = tokens.slice(git + 1).find(token => token === 'commit' || token === 'push');
+        if (!operation) continue;
+        if (tokens.includes('--no-verify') || operation === 'commit' && tokens.includes('-n')) {
+          return { status: 'fail', reason: `Git hook bypass is prohibited for git ${operation}` };
+        }
+      }
+      return { status: 'pass', reason: 'No Git hook bypass flag found' };
     }
     const result = JSON.parse(await runCommand(checker.command, {
       cwd: project.root, input: { version: 1, event, projectRoot: project.root }, timeoutMs: checker.timeoutMs, signal,
