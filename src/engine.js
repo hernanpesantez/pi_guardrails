@@ -42,16 +42,24 @@ export function validateConfig(config) {
     assert(['warn', 'block'].includes(e.action), `${e.id}: action must be warn or block`);
     keys(e.check, ['kind', 'options', 'command', 'timeoutMs'], `${e.id}.check`);
     const c = e.check;
-    assert(['deny', 'git-branch', 'command'].includes(c.kind), `${e.id}: unknown checker ${c.kind}`);
+    assert(['deny', 'git-branch', 'git-push', 'git-hook-bypass', 'command'].includes(c.kind), `${e.id}: unknown checker ${c.kind}`);
     if (c.kind === 'command') {
       assert(c.options === undefined, `${e.id}: command checker does not accept options`);
       command(c.command, e.id); timeout(c.timeoutMs, e.id);
     } else {
       assert(c.command === undefined && c.timeoutMs === undefined, `${e.id}: command fields require command checker`);
       if (c.kind === 'deny') keys(c.options ?? {}, [], e.id);
+      if (c.kind === 'git-hook-bypass') keys(c.options ?? {}, [], e.id);
       if (c.kind === 'git-branch') {
         keys(c.options, ['protected'], `${e.id}.options`);
         assert(strings(c.options.protected) && c.options.protected.length > 0, `${e.id}: protected branches required`);
+      }
+      if (c.kind === 'git-push') {
+        keys(c.options, ['protected', 'denyDeletes', 'sameBranch'], `${e.id}.options`);
+        assert(c.options.protected === undefined || strings(c.options.protected), `${e.id}: protected must be a list of branch names`);
+        assert(c.options.denyDeletes === undefined || typeof c.options.denyDeletes === 'boolean', `${e.id}: denyDeletes must be boolean`);
+        assert(c.options.sameBranch === undefined || typeof c.options.sameBranch === 'boolean', `${e.id}: sameBranch must be boolean`);
+        assert((c.options.protected?.length ?? 0) > 0 || c.options.denyDeletes === true || c.options.sameBranch === true, `${e.id}: git-push requires protected branches, denyDeletes, or sameBranch`);
       }
     }
   }
@@ -140,6 +148,43 @@ export async function check(checker, event, project, signal) {
         ? { status: 'fail', reason: `Protected branch: ${branch}` }
         : { status: 'pass', reason: `Feature branch: ${branch}` };
     }
+    if (checker.kind === 'git-push') {
+      assert(event.toolName === 'git:pre-push', 'git-push checker requires git:pre-push');
+      assert(Array.isArray(event.input?.updates), 'Missing pre-push updates');
+      const zero = sha => typeof sha === 'string' && /^0{40}(?:0{24})?$/.test(sha);
+      for (const update of event.input.updates) {
+        assert(object(update), 'Invalid pre-push update');
+        for (const field of ['localRef', 'localSha', 'remoteRef', 'remoteSha']) assert(nonempty(update[field]), `Missing pre-push ${field}`);
+        const branchName = update.remoteRef.startsWith('refs/heads/') ? update.remoteRef.slice(11) : null;
+        if (branchName && (checker.options.protected ?? []).includes(branchName)) return { status: 'fail', reason: `Protected push destination: ${branchName}` };
+        if (zero(update.localSha)) {
+          if (checker.options.denyDeletes) return { status: 'fail', reason: `Branch deletion is prohibited: ${branchName ?? update.remoteRef}` };
+          continue;
+        }
+        if (checker.options.sameBranch && branchName) {
+          const localName = update.localRef.startsWith('refs/heads/') ? update.localRef.slice(11) : null;
+          if (!localName || localName !== branchName) return { status: 'fail', reason: `Push branch names must match: ${update.localRef} → ${update.remoteRef}` };
+        }
+      }
+      return { status: 'pass', reason: `${event.input.updates.length} push update(s) allowed` };
+    }
+    if (checker.kind === 'git-hook-bypass') {
+      assert(typeof event.input?.command === 'string', 'Missing shell command');
+      // Inspect the direct shell command without claiming to be a complete
+      // shell parser. Removing simple quotes also catches --no-"verify".
+      const segments = event.input.command.split(/&&|\|\||;|\||\n|\$\(/g);
+      for (const segment of segments) {
+        const tokens = segment.replace(/["']/g, '').trim().split(/\s+/).filter(Boolean);
+        const git = tokens.findIndex(token => token === 'git' || token.endsWith('/git'));
+        if (git < 0) continue;
+        const operation = tokens.slice(git + 1).find(token => token === 'commit' || token === 'push');
+        if (!operation) continue;
+        if (tokens.includes('--no-verify') || operation === 'commit' && tokens.includes('-n')) {
+          return { status: 'fail', reason: `Git hook bypass is prohibited for git ${operation}` };
+        }
+      }
+      return { status: 'pass', reason: 'No Git hook bypass flag found' };
+    }
     const result = JSON.parse(await runCommand(checker.command, {
       cwd: project.root, input: { version: 1, event, projectRoot: project.root }, timeoutMs: checker.timeoutMs, signal,
     }));
@@ -161,6 +206,17 @@ export async function evaluate(project, event, signal) {
   }
   return { blocked: results.some(r => r.action === 'block' && r.status !== 'pass'), results };
 }
+const enabled = item => Boolean(item) && item.enabled !== false;
+export function projectCounts(project) {
+  const count = items => ({ active: items.filter(enabled).length, total: items.length });
+  const enabledRules = new Set((project?.config.rules ?? []).filter(enabled).map(rule => rule.id));
+  const enforcements = project?.config.enforcements ?? [];
+  return {
+    rules: count(project?.config.rules ?? []),
+    enforcements: { active: enforcements.filter(item => enabled(item) && enabledRules.has(item.rule)).length, total: enforcements.length },
+    tools: count(project?.config.tools ?? []),
+  };
+}
 export function describe(project) {
   if (!project) return 'Harness: no project configuration. Run /harness init.';
   const { config } = project;
@@ -171,5 +227,33 @@ export function describe(project) {
     lines.push(`${rule.id} [${mode}]: ${rule.description}`);
   }
   for (const tool of config.tools) lines.push(`tool harness_${tool.id}: ${tool.enabled === false ? 'disabled' : tool.description}`);
+  return lines.join('\n');
+}
+export function describeDetailed(project) {
+  if (!project) return 'Harness: no project configuration. Run /harness init.';
+  const counts = projectCounts(project);
+  const lines = [
+    `Harness: ${project.file}`,
+    `Rules ${counts.rules.active}/${counts.rules.total} active · Enforcements ${counts.enforcements.active}/${counts.enforcements.total} active · Tools ${counts.tools.active}/${counts.tools.total} active`,
+    '',
+    'Rules',
+  ];
+  if (!project.config.rules.length) lines.push('  (none)');
+  for (const rule of project.config.rules) {
+    lines.push(`  ${enabled(rule) ? '●' : '○'} ${rule.id}: ${rule.description}`);
+  }
+  lines.push('', 'Enforcements');
+  if (!project.config.enforcements.length) lines.push('  (none)');
+  for (const enforcement of project.config.enforcements) {
+    const ruleEnabled = enabled(project.config.rules.find(rule => rule.id === enforcement.rule));
+    const effective = enabled(enforcement) && ruleEnabled;
+    const note = !ruleEnabled ? ' · rule disabled' : '';
+    lines.push(`  ${effective ? '●' : '○'} ${enforcement.id} [${enforcement.action} · ${enforcement.check.kind} · ${enforcement.tools.join(', ')}${note}] → ${enforcement.rule}`);
+  }
+  lines.push('', 'Tools');
+  if (!project.config.tools.length) lines.push('  (none)');
+  for (const tool of project.config.tools) {
+    lines.push(`  ${enabled(tool) ? '●' : '○'} harness_${tool.id}: ${tool.description}`);
+  }
   return lines.join('\n');
 }

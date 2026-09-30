@@ -8,7 +8,7 @@ Use Node.js >=22.19. The core has no runtime dependencies or build step.
 4. Exercise `/harness init`, rule/enforcement/tool additions, and a blocked tool call.
 5. Run `npm pack --dry-run` and inspect the file list.
 
-Keep the core independent of Pi. Add adapters in `extensions/`. Prefer the existing command protocol for third-party checkers; adding a built-in checker requires validation, documented scope, and tests for unknown/error outcomes. Never claim a tool-call filter is a security sandbox.
+Keep the policy engine independent of Pi. Pi integration belongs in `extensions/`; native Git integration belongs in `src/git.js`, `hooks/`, and its small CLI entry point. Prefer the existing command protocol for third-party checkers; adding a built-in checker requires validation, documented scope, and tests for unknown/error outcomes. Never claim a tool-call filter or local Git hook is a security sandbox.
 
 Changes to configuration or program protocols must preserve version 1 compatibility or introduce an explicitly supported new version. Tests should cover behavior and failure modes, including renamed/disabled tools and config errors.
 
